@@ -1,10 +1,45 @@
-# example values
-
 indexing-settings:
   sites:
-    - url: https://www.lenta.ru
+    - url: https://lenta.ru
       name: Лента.ру
-    - url: https://www.skillbox.ru
+    - url: https://skillbox.ru
       name: Skillbox
-    - url: https://www.playback.ru
+    - url: https://playback.ru
       name: PlayBack.Ru
+#    - url: https://volochek.life/
+#      name: Вышний Волочёк портал города
+#    - url: http://radiomv.ru/
+#      name: Радио Милицейская Волна
+#    - url: https://dimonvideo.ru/
+#      name: DimonVideo
+#    - url: https://nikoartgallery.com/
+#      name: Галерея искусств Niko
+#    - url: https://et-cetera.ru/mobile/
+#      name: Театр «Et Cetera»
+#    - url: https://dombulgakova.ru/
+#      name: Булгаковский Дом - Новости
+#    - url: https://www.svetlovka.ru/
+#      name: Центральная городская молодежная библиотека им. М. А. Светлова
+#server:
+  port: 8080
+
+spring:
+  datasource:
+    username: root
+    password: lutin199106
+    url: jdbc:mysql://localhost:3306/search_engine?useSSL=false&requireSSL=false&allowPublicKeyRetrieval=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+    hibernate:
+      show-sql: true
+      hibernate.ddl-auto: none
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    enabled: true
+    drop-first: true
+logging:
+  level:
+    liquibase: info

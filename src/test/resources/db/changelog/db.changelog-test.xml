@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="1-create-site-table" author="kirill">
+        <createTable tableName="site">
+            <column name="id" type="INT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="url" type="VARCHAR(255)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status_time" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_error" type="TEXT"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="2-create-page-table" author="kirill">
+        <createTable tableName="page">
+            <column name="id" type="INT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="site_id" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="path" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="code" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="content" type="MEDIUMTEXT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="page"
+                baseColumnNames="site_id"
+                constraintName="fk_page_site"
+                referencedTableName="site"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="3-create-index-path" author="kirill">
+        <sql dbms="mysql">
+            CREATE INDEX idx_path ON page (path(255));
+        </sql>
+    </changeSet>
+
+    <changeSet id="4-alter-content-utf8mb4" author="kirill" runOnChange="true">
+        <sql dbms="mysql">
+            ALTER TABLE page
+            MODIFY content MEDIUMTEXT
+            CHARACTER SET utf8mb4
+            COLLATE utf8mb4_unicode_ci;
+        </sql>
+    </changeSet>
+
+    <changeSet id="5-add-unique-index-path-site" author="kirill">
+        <sql dbms="mysql">
+            CREATE UNIQUE INDEX uk_page_path_site
+            ON page (path(255), site_id);
+        </sql>
+    </changeSet>
+
+    <changeSet id="6-create-lemma-table" author="kirill">
+        <createTable tableName="lemma">
+            <column name="id" type="INT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="site_id" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lemma" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="frequency" type="INT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="lemma"
+                baseColumnNames="site_id"
+                constraintName="fk_lemma_site"
+                referencedTableName="site"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="6-1-add-unique-index-lemma-site" author="kirill">
+        <sql dbms="mysql">
+            CREATE UNIQUE INDEX uk_lemma_site ON lemma (lemma, site_id);
+        </sql>
+    </changeSet>
+
+    <changeSet id="7-create-index-table" author="kirill">
+        <createTable tableName="index_entry">
+            <column name="id" type="INT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="page_id" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lemma_id" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="lemma_rank" type="FLOAT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="index_entry"
+                baseColumnNames="page_id"
+                constraintName="fk_index_page"
+                referencedTableName="page"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+
+        <addForeignKeyConstraint
+                baseTableName="index_entry"
+                baseColumnNames="lemma_id"
+                constraintName="fk_index_lemma"
+                referencedTableName="lemma"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+    </changeSet>
+
+</databaseChangeLog>
