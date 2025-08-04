@@ -91,7 +91,6 @@
 
 ```bash
   git clone https://github.com/kshmailov/SearchEngine.git
-  cd SearchEngine
 ```
 
 ---
