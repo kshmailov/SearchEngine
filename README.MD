@@ -100,12 +100,21 @@
 1. Установите MySQL и запустите сервер.
 2. Создайте базу данных и пользователя:
    ```sql
-   CREATE DATABASE search_engine_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-   CREATE USER 'search_user'@'localhost' IDENTIFIED BY 'your_password';
-   GRANT ALL PRIVILEGES ON search_engine_db.* TO 'search_user'@'localhost';
+   CREATE DATABASE search_engine CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'root'@'localhost' IDENTIFIED BY 'lutin199106';
+   GRANT ALL PRIVILEGES ON search_engine.* TO 'root'@'localhost';
    FLUSH PRIVILEGES;
    ```
-
+    Примечание: Нового пользователя создавать не обязательно! Если есть существующий пользователь, то можно его указать в команде GRANT ALL PRIVILEGES. Соответствующий пользватель должен быть указан в параметрах настроек подключения к БД. Также команду CREATE USER в этом случае нужно будет пропустить.
+  
+    Дополнительно можно создать базу данных для тестов.
+   ```sql
+   CREATE DATABASE testdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'user'@'localhost' IDENTIFIED BY 'password';
+   GRANT ALL PRIVILEGES ON testdb.* TO 'user'@'localhost';
+   FLUSH PRIVILEGES;
+   ```
+   Примечание: По аналогии с рабочей БД. Можно использовать существующую БД.
 ---
 
 ### ✅ 3. Настройте параметры подключения
@@ -127,6 +136,26 @@ spring:
             hibernate.ddl-auto: none
 ```
 
+Примечание: Параметры настроек подключения должны соответствовать настроенным в MySQL ранее.  
+Для тестовой БД откройте `src/test/resources/application-test.yaml` и укажите свои настройки:
+```properties
+spring:
+    datasource:
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://localhost:3307/testdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+        username: user
+        password: password
+    jpa:
+        properties:
+            hibernate:
+                dialect: org.hibernate.dialect.MySQL8Dialect
+        hibernate:
+            show-sql: true
+            hibernate.ddl-auto: none
+```
+
+Примечание: Параметры настроек подключения должны соответствовать настроенным в MySQL ранее.
+
 ---
 
 ### ✅ 4. Соберите и запустите проект
@@ -136,7 +165,8 @@ spring:
   mvn spring-boot:run
 ```
 
-Приложение будет доступно по адресу: [http://localhost:8080](http://localhost:8080)
+Приложение будет доступно по адресу: [http://localhost:8080](http://localhost:8080)  
+В случае если тестовая база данных не была создана ранее и настроено для нее подключение, то команда `mvn clean install` заменяется на `mvn clean install -DskipTests`.
 
 ---
 

@@ -20,7 +20,7 @@ indexing-settings:
 #      name: Булгаковский Дом - Новости
 #    - url: https://www.svetlovka.ru/
 #      name: Центральная городская молодежная библиотека им. М. А. Светлова
-#server:
+server:
   port: 8080
 
 spring:
