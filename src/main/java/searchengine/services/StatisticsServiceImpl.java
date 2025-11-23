@@ -20,6 +20,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import static searchengine.utils.UrlUtils.normalizeBaseUrl;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -56,31 +58,33 @@ public class StatisticsServiceImpl implements StatisticsService {
     }
 
     private DetailedStatisticsItem getDetailedStatistic(Site siteInfo) {
-        boolean isSiteExist = siteRepository.existsByUrl(siteInfo.getUrl());
+        String normalizedUrl = normalizeBaseUrl(siteInfo.getUrl());
+
+        boolean isSiteExist = siteRepository.existsByUrl(normalizedUrl);
         SiteEntity site = null;
         int pagesCount = 0;
         int lemmasCount = 0;
 
         if (isSiteExist) {
-            site = siteRepository.findByUrl(siteInfo.getUrl());
+            site = siteRepository.findByUrl(normalizedUrl);
             pagesCount = pageRepository.countAllBySiteId(site.getId());
             lemmasCount = lemmaRepository.countAllBySiteId(site.getId());
         }
 
-        DetailedStatisticsItem detailedStatisticsItem = new DetailedStatisticsItem();
-        detailedStatisticsItem.setUrl(isSiteExist ? site.getUrl() : siteInfo.getUrl());
-        detailedStatisticsItem.setName(isSiteExist ? site.getName() : siteInfo.getName());
-        detailedStatisticsItem.setStatus(isSiteExist ? site.getStatus() : null);
-        detailedStatisticsItem.setStatusTime(isSiteExist ? site.getStatusTime() : LocalDateTime.now());
-        detailedStatisticsItem.setError(isSiteExist ? site.getLastError() : null);
-        detailedStatisticsItem.setPages(pagesCount);
-        detailedStatisticsItem.setLemmas(lemmasCount);
+        DetailedStatisticsItem item = new DetailedStatisticsItem();
+        item.setUrl(isSiteExist ? normalizedUrl + "/" : siteInfo.getUrl()); // для красивого вывода со слэшем
+        item.setName(isSiteExist ? site.getName() : siteInfo.getName());
+        item.setStatus(isSiteExist ? site.getStatus() : null);
+        item.setStatusTime(isSiteExist ? site.getStatusTime() : LocalDateTime.now());
+        item.setError(isSiteExist ? site.getLastError() : null);
+        item.setPages(pagesCount);
+        item.setLemmas(lemmasCount);
 
         if (!isSiteExist) {
             log.warn("⚠️ Сайт {} отсутствует в базе, данные берутся из конфигурации", siteInfo.getUrl());
         }
 
-        return detailedStatisticsItem;
+        return item;
     }
 
     private TotalStatistics getTotalStatistic() {

@@ -1,10 +1,10 @@
 indexing-settings:
   sites:
-    - url: https://lenta.ru
+    - url: https://lenta.ru/
       name: Лента.ру
-    - url: https://skillbox.ru
+    - url: https://skillbox.ru/
       name: Skillbox
-    - url: https://playback.ru
+    - url: https://playback.ru/
       name: PlayBack.Ru
 #    - url: https://volochek.life/
 #      name: Вышний Волочёк портал города

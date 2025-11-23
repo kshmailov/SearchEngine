@@ -9,7 +9,7 @@ import java.util.List;
 public class SearchResponse {
 
     private boolean result;
-    private int count;
+    private long count;
     private List<SearchDto> data;
     private String error;
 }

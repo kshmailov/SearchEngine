@@ -42,4 +42,11 @@ public interface PageRepository extends JpaRepository<PageEntity,Integer> {
             @Param("lemmaId") Integer lemmaId,
             Pageable pageable
     );
+    @Query("""
+  SELECT COUNT(DISTINCT p.id)
+  FROM PageEntity p
+  JOIN SearchIndexEntity s ON s.page = p
+  WHERE s.lemma.id = :lemmaId
+""")
+    long countAllByLemmaId(@Param("lemmaId") Integer lemmaId);
 }

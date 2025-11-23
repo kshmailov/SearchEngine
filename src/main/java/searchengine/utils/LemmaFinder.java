@@ -1,130 +1,118 @@
 package searchengine.utils;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.lucene.morphology.LuceneMorphology;
+import org.apache.lucene.morphology.english.EnglishLuceneMorphology;
 import org.apache.lucene.morphology.russian.RussianLuceneMorphology;
 import searchengine.dto.LemmaDto;
 
 import java.io.IOException;
 import java.util.*;
-
+@Slf4j
 public class LemmaFinder {
-    private final LuceneMorphology luceneMorphology;
-    private static final String WORD_TYPE_REGEX = "\\W\\w&&[^а-яА-Я\\s]";
-    private static final String[] particlesNames = new String[]{"МЕЖД", "ПРЕДЛ", "СОЮЗ"};
+
+    private final LuceneMorphology russianMorph;
+    private final LuceneMorphology englishMorph;
+
+    private static LemmaFinder instance;
+
+    private static final Set<String> RUS_PART = Set.of("МЕЖД", "ПРЕДЛ", "СОЮЗ");
+    private static final Set<String> ENG_PART = Set.of("CONJ", "PREP", "PRON");
+
+    private LemmaFinder(LuceneMorphology russianMorph, LuceneMorphology englishMorph) {
+        this.russianMorph = russianMorph;
+        this.englishMorph = englishMorph;
+    }
 
     public static LemmaFinder getInstance() throws IOException {
-        LuceneMorphology morphology= new RussianLuceneMorphology();
-        return new LemmaFinder(morphology);
-    }
-
-    private LemmaFinder(LuceneMorphology luceneMorphology) {
-        this.luceneMorphology = luceneMorphology;
-    }
-
-    private LemmaFinder(){
-        throw new RuntimeException("Disallow construct");
-    }
-
-    /**
-     * Метод разделяет текст на слова, находит все леммы и считает их количество.
-     *
-     * @param text текст из которого будут выбираться леммы
-     * @return ключ является леммой, а значение количеством найденных лемм
-     */
-    public Map<String, Integer> collectLemmas(String text) {
-        String[] words = arrayContainsRussianWords(text);
-        HashMap<String, Integer> lemmas = new HashMap<>();
-
-        for (String word : words) {
-            if (word.isBlank()) {
-                continue;
-            }
-
-            List<String> wordBaseForms = luceneMorphology.getMorphInfo(word);
-            if (anyWordBaseBelongToParticle(wordBaseForms)) {
-                continue;
-            }
-
-            List<String> normalForms = luceneMorphology.getNormalForms(word);
-            if (normalForms.isEmpty()) {
-                continue;
-            }
-
-            String normalWord = normalForms.get(0);
-
-            if (lemmas.containsKey(normalWord)) {
-                lemmas.put(normalWord, lemmas.get(normalWord) + 1);
-            } else {
-                lemmas.put(normalWord, 1);
-            }
+        if (instance == null) {
+            instance = new LemmaFinder(
+                    new RussianLuceneMorphology(),
+                    new EnglishLuceneMorphology()
+            );
         }
-
-        return lemmas;
+        return instance;
     }
 
-
-    /**
-     * @param text текст из которого собираем все леммы
-     * @return набор уникальных лемм найденных в тексте
-     */
-    public Set<String> getLemmaSet(String text) {
-        String[] textArray = arrayContainsRussianWords(text);
-        Set<String> lemmaSet = new HashSet<>();
-        for (String word : textArray) {
-            if (!word.isEmpty() && isCorrectWordForm(word)) {
-                List<String> wordBaseForms = luceneMorphology.getMorphInfo(word);
-                if (anyWordBaseBelongToParticle(wordBaseForms)) {
-                    continue;
-                }
-                lemmaSet.addAll(luceneMorphology.getNormalForms(word));
-            }
-        }
-        return lemmaSet;
+    private LuceneMorphology getMorph(String word) {
+        if (word.matches(".*[а-яА-ЯёЁ].*")) return russianMorph;
+        if (word.matches(".*[a-zA-Z].*")) return englishMorph;
+        return null;
     }
 
-    private boolean anyWordBaseBelongToParticle(List<String> wordBaseForms) {
-        return wordBaseForms.stream().anyMatch(this::hasParticleProperty);
+    private List<String> splitWords(String text) {
+        if (text == null) return List.of();
+        return Arrays.stream(text.toLowerCase(Locale.ROOT)
+                        .split("[^a-zA-Zа-яА-ЯёЁ0-9\\-']+"))
+                .filter(w -> w.length() > 1)
+                .toList();
     }
 
-    private boolean hasParticleProperty(String wordBase) {
-        for (String property : particlesNames) {
-            if (wordBase.toUpperCase().contains(property)) {
-                return true;
-            }
+    private boolean isParticle(List<String> info) {
+        for (String s : info) {
+            String u = s.toUpperCase(Locale.ROOT);
+            if (RUS_PART.stream().anyMatch(u::contains)) return true;
+            if (ENG_PART.stream().anyMatch(u::contains)) return true;
         }
         return false;
     }
 
-    private String[] arrayContainsRussianWords(String text) {
-        return text.toLowerCase(Locale.ROOT)
-                .replaceAll("([^а-я\\s])", " ")
-                .trim()
-                .split("\\s+");
-    }
+    public Map<String, Integer> collectLemmas(String text) {
+        Map<String, Integer> map = new HashMap<>();
 
-    private boolean isCorrectWordForm(String word) {
-        List<String> wordInfo = luceneMorphology.getMorphInfo(word);
-        for (String morphInfo : wordInfo) {
-            if (morphInfo.matches(WORD_TYPE_REGEX)) {
-                return false;
+        for (String word : splitWords(text)) {
+            LuceneMorphology morph = getMorph(word);
+            if (morph == null) continue;
+
+            try {
+                List<String> info = morph.getMorphInfo(word);
+                if (isParticle(info)) continue;
+
+                String lemma = morph.getNormalForms(word).get(0);
+                map.merge(lemma, 1, Integer::sum);
+            } catch (Exception ex) {
+                log.debug("⚠ Пропущено слово при подсчете количества лемм '{}': {}", word, ex.getMessage());
             }
         }
-        return true;
+        return map;
     }
+
+    public Set<String> getLemmaSet(String text) {
+        Set<String> set = new HashSet<>();
+
+        for (String word : splitWords(text)) {
+            LuceneMorphology morph = getMorph(word);
+            if (morph == null) continue;
+
+            try {
+                List<String> info = morph.getMorphInfo(word);
+                if (isParticle(info)) continue;
+                set.addAll(morph.getNormalForms(word));
+            } catch (Exception ex) {
+                log.debug("⚠ Пропущено слово при формировании уникального набора лемм '{}': {}", word, ex.getMessage());
+            }
+        }
+        return set;
+    }
+
     public List<LemmaDto> getLemmaDto(String text) {
-        String[] textArray = arrayContainsRussianWords(text);
+        List<LemmaDto> list = new ArrayList<>();
 
-        List<LemmaDto> lemmas = new ArrayList<>();
-        for (String word : textArray) {
+        for (String word : splitWords(text)) {
+            LuceneMorphology morph = getMorph(word);
+            if (morph == null) continue;
 
-            List<String> wordBaseForms = luceneMorphology.getMorphInfo(word);
-            if (!word.isEmpty() && isCorrectWordForm(word) && !anyWordBaseBelongToParticle(wordBaseForms)) {
-                LemmaDto lemmaDto = new LemmaDto();
-                lemmaDto.setIncomingForm(word);
-                lemmaDto.setNormalForm(luceneMorphology.getNormalForms(word).get(0));
-                lemmas.add(lemmaDto);
-            }
+            try {
+                List<String> info = morph.getMorphInfo(word);
+                if (isParticle(info)) continue;
+
+                LemmaDto dto = new LemmaDto();
+                dto.setIncomingForm(word);
+                dto.setNormalForm(morph.getNormalForms(word).get(0));
+                list.add(dto);
+
+            } catch (Exception ignore) { }
         }
-        return lemmas;
+        return list;
     }
 }

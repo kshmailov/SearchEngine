@@ -28,6 +28,9 @@ import java.net.UnknownHostException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ForkJoinPool;
+
+import static searchengine.utils.UrlUtils.normalizeBaseUrl;
+
 @Slf4j
 @Service
 public class SiteIndexingServiceImpl implements SiteIndexingService {
@@ -73,7 +76,7 @@ public class SiteIndexingServiceImpl implements SiteIndexingService {
         List<Site> siteInfos = sitesList.getSites();
         for (Site siteInfo : siteInfos) {
             Thread thread = new Thread(() -> {
-                String url = siteInfo.getUrl().replace("www.", "");
+                String url = normalizeBaseUrl(siteInfo.getUrl());
                 log.info("🔗 Индексация сайта: {}", url);
 
                 siteRepository.deleteByUrl(url);
@@ -150,104 +153,25 @@ public class SiteIndexingServiceImpl implements SiteIndexingService {
     @Override
     public IndexResponse indexPage(String url) throws IOException {
         log.info("🔄 Индексация одной страницы: {}", url);
-        IndexResponse indexResponse = new IndexResponse();
 
-        String prefix;
-        String suffix;
+        ParsedUrl parsed;
         try {
-            URL parsedUrl = new URL(url);
-            prefix = parsedUrl.getProtocol() + "://" + parsedUrl.getHost();
-            suffix = parsedUrl.getPath().isEmpty() ? "/" : parsedUrl.getPath();
+            parsed = parseUrl(url);
         } catch (MalformedURLException e) {
-            indexResponse.setError("Некорректный URL: " + url);
-            indexResponse.setResult(false);
-            log.error("❌ Некорректный URL: {}", url);
-            return indexResponse;
+            return errorResponse("Некорректный URL: " + url);
         }
 
-        Site siteInfo = sitesList.getSites().stream()
-                .filter(s -> s.getUrl().equals(prefix))
-                .findFirst()
-                .orElse(null);
-
+        Site siteInfo = validateSiteFromConfig(parsed.prefix(), url);
         if (siteInfo == null) {
-            indexResponse.setError("Данная страница находится за пределами сайтов, указанных в конфигурации");
-            indexResponse.setResult(false);
-            log.warn("⛔ Страница {} вне списка разрешённых сайтов", url);
-            return indexResponse;
+            return errorResponse("Данная страница находится за пределами сайтов, указанных в конфигурации");
         }
 
-        SiteEntity site = siteRepository.findByUrl(prefix);
-        if (site == null) {
-            site = new SiteEntity();
-            site.setUrl(siteInfo.getUrl());
-            site.setName(siteInfo.getName());
-            site.setStatus(Status.INDEXING);
-            site.setStatusTime(LocalDateTime.now());
-            siteRepository.save(site);
-            log.info("📌 Новый Site сохранён: {}", site.getUrl());
-        }
+        SiteEntity site = getOrCreateSiteEntity(parsed.prefix(), siteInfo);
+        removeExistingPageIfExists(parsed.suffix(), site);
 
-        int siteId = site.getId();
-        Optional<PageEntity> optionalPage = pageRepository.findByPathAndSiteId(suffix, siteId);
-        if (optionalPage.isPresent()) {
-            PageEntity page = optionalPage.get();
-            int pageId = page.getId();
-            log.info("♻️ Существующая страница будет удалена: path='{}'", suffix);
-
-            LemmaFinder lemmaFinder = LemmaFinder.getInstance();
-            Set<String> lemmas = lemmaFinder.getLemmaSet(page.getContent());
-            for (String lemma : lemmas) {
-                lemmaRepository.decrementAllFrequencyBySiteIdAndLemma(siteId, lemma);
-            }
-
-            indexRepository.deleteAllByPageId(pageId);
-            pageRepository.delete(page);
-            log.info("🗑️ Старая страница удалена: {}", suffix);
-        }
-
-        site.setStatus(Status.INDEXING);
-        site.setStatusTime(LocalDateTime.now());
-        siteRepository.save(site);
-
-        try {
-            Connection.Response response = Jsoup.connect(url)
-                    .timeout(30_000)
-                    .ignoreHttpErrors(true)
-                    .ignoreContentType(true)
-                    .userAgent("HeliontSearchBot/1.0 (+https://heliont.example.com/bot-info)")
-                    .referrer("http://www.google.com")
-                    .execute();
-
-            int statusCode = response.statusCode();
-            log.info("🌐 Ответ от страницы {}: HTTP {}", url, statusCode);
-
-            Document document = response.parse();
-            String html = document.html();
-
-            PageEntity newPage = pageService.createOrUpdatePage(site, suffix, statusCode, html);
-            log.info("💾 Новая страница сохранена: path='{}'", suffix);
-
-            saveLemmaAndIndex(newPage);
-            log.info("✅ Леммы и индексы обновлены: path='{}'", suffix);
-
-            site.setStatus(Status.INDEXED);
-            site.setStatusTime(LocalDateTime.now());
-            siteRepository.save(site);
-
-            indexResponse.setResult(true);
-        } catch (IOException e) {
-            site.setStatus(Status.FAILED);
-            site.setLastError(e.getMessage());
-            site.setStatusTime(LocalDateTime.now());
-            siteRepository.save(site);
-
-            log.error("❌ Ошибка при скачивании страницы {}: {}", url, e.getMessage(), e);
-            throw e;
-        }
-
-        return indexResponse;
+        return downloadAndIndexPage(url, parsed.suffix(), site);
     }
+
 
     public String normalizePath(String url) {
         try {
@@ -274,7 +198,14 @@ public class SiteIndexingServiceImpl implements SiteIndexingService {
         List<SearchIndexEntity> searchIndexEntities = new ArrayList<>();
 
         int siteId = page.getSite().getId();
-        Map<String, Integer> lemmas = lemmaFinder.collectLemmas(page.getContent());
+        Map<String, Integer> lemmas;
+
+        try {
+            lemmas = lemmaFinder.collectLemmas(page.getContent());
+        } catch (Exception e) {
+            log.error("⚠ Ошибка лемматизации, индексируем без лемм. page={}", page.getId(), e);
+            return;
+        }
 
         for (Map.Entry<String, Integer> word : lemmas.entrySet()) {
             String lemmaKey = word.getKey();
@@ -283,7 +214,6 @@ public class SiteIndexingServiceImpl implements SiteIndexingService {
 
             LemmaEntity lemma = lemmaRepository.findBySiteIdAndLemma(siteId, lemmaKey)
                     .orElseThrow(() -> new IllegalStateException("Lemma не найдена после UPSERT: " + lemmaKey));
-
             SearchIndexEntity indexEntry = new SearchIndexEntity();
             indexEntry.setPage(page);
             indexEntry.setLemma(lemma);
@@ -331,6 +261,89 @@ public class SiteIndexingServiceImpl implements SiteIndexingService {
 
         throw new IOException("Не удалось подключиться к " + url + " после " + attempts + " попыток", lastEx);
     }
+    private record ParsedUrl(String prefix, String suffix) {}
+    private ParsedUrl parseUrl(String url) throws MalformedURLException {
+        URL parsedUrl = new URL(url);
+        String prefix = normalizeBaseUrl(parsedUrl.getProtocol() + "://" + parsedUrl.getHost());
+        String suffix = parsedUrl.getPath().isEmpty() ? "/" : parsedUrl.getPath();
+        return new ParsedUrl(prefix, suffix);
+    }
+    private Site validateSiteFromConfig(String prefix, String url) {
+        return sitesList.getSites().stream()
+                .filter(s -> normalizeBaseUrl(s.getUrl()).equals(prefix))
+                .findFirst()
+                .orElse(null);
+    }
+    private SiteEntity getOrCreateSiteEntity(String prefix, Site siteInfo) {
+        SiteEntity site = siteRepository.findByUrl(prefix);
+        if (site == null) {
+            site = new SiteEntity();
+            site.setUrl(prefix);
+            site.setName(siteInfo.getName());
+            site.setStatus(Status.INDEXING);
+            site.setStatusTime(LocalDateTime.now());
+            siteRepository.save(site);
+            log.info("📌 Новый Site сохранён: {}", site.getUrl());
+        }
+        return site;
+    }
+    private void removeExistingPageIfExists(String path, SiteEntity site) {
+        pageRepository.findByPathAndSiteId(path, site.getId()).ifPresent(page -> {
+            log.info("♻️ Найдена старая страница. Удаляем: {}", path);
+            try {
+                LemmaFinder lemmaFinder = LemmaFinder.getInstance();
+                Set<String> lemmas = lemmaFinder.getLemmaSet(page.getContent());
+                lemmas.forEach(l -> lemmaRepository.decrementAllFrequencyBySiteIdAndLemma(site.getId(), l));
+            } catch (IOException e) {
+                log.error("Ошибка лемматизации при удалении страницы {}", path, e);
+            }
+
+            indexRepository.deleteAllByPageId(page.getId());
+            pageRepository.delete(page);
+        });
+    }
+    private IndexResponse downloadAndIndexPage(String url, String path, SiteEntity site) throws IOException {
+        try {
+            Connection.Response response = safeConnect(url);
+            Document document = response.parse();
+            PageEntity newPage = pageService.createOrUpdatePage(site, path, response.statusCode(), document.html());
+
+            saveLemmaAndIndex(newPage);
+
+            site.setStatus(Status.INDEXED);
+            site.setStatusTime(LocalDateTime.now());
+            siteRepository.save(site);
+
+            return successResponse();
+        } catch (IOException e) {
+            site.setStatus(Status.FAILED);
+            site.setLastError(e.getMessage());
+            site.setStatusTime(LocalDateTime.now());
+            siteRepository.save(site);
+
+            log.error("❌ Ошибка при скачивании {}: {}", url, e.getMessage());
+            throw e;
+        }
+    }
+    private IndexResponse successResponse() {
+        IndexResponse res = new IndexResponse();
+        res.setResult(true);
+        return res;
+    }
+
+    private IndexResponse errorResponse(String message) {
+        IndexResponse res = new IndexResponse();
+        res.setResult(false);
+        res.setError(message);
+        return res;
+    }
+
+
+
+
+
+
+
 
 
 
